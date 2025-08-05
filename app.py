@@ -24,7 +24,7 @@ def save_reservation(new_reservation):
     df.to_csv(CSV_FILE, index=False)
     
 def show_user_interface():
-    st.title("간편 예약 서비스")
+    st.title("엘리스 클라우드 B200 예약 서비스")
     st.write("원하시는 날짜와 개수를 선택하고 정보를 남겨주세요.")
 
     # 8월 31일까지는 예약을 할 수 없도록 min_value 설정
@@ -50,10 +50,10 @@ def show_user_interface():
         phone = st.text_input("핸드폰 번호")
         
         # 예약 개수 입력 필드
-        tickets = st.number_input("예약할 개수를 입력하세요.", min_value=1, step=1, value=1)
+        tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
         
         # 예약금 확인 체크박스
-        deposit_paid = st.checkbox("예약금을 입금했습니까?")
+        deposit_paid = st.checkbox("예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)")
 
         if st.button("예약하기"):
             if name and email and phone and deposit_paid:
@@ -71,7 +71,7 @@ def show_user_interface():
                     }
                     save_reservation(new_reservation)
                 
-                st.success(f"**{name}** 님, {start_date}부터 {end_date}까지 총 {tickets}개 예약이 완료되었습니다!")
+                st.success(f"**{name}** 님, {start_date}부터 {end_date}까지 총 {tickets}장 예약이 완료되었습니다!")
             else:
                 st.warning("모든 정보를 입력하고 예약금 입금을 확인해주세요.")
 
