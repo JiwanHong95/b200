@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import calendar
-from streamlit_gsheets import GSheetsConnection
+from st_gsheets_connection import GSheetsConnection
 
 # ---- 설정 ----
 ADMIN_PASSWORD = st.secrets.get("admin_password", "")
