@@ -78,8 +78,8 @@ def show_user_interface():
     max_date = datetime.date(2026, 12, 31)
 
     reservation_dates = st.date_input(
-        "예약 날짜를 선택하세요. (2025년 9월 1일부터 예약 가능)",
-        (min_selectable_date, min_selectable_date + datetime.timedelta(days=1)),
+        "예약 날짜를 선택하세요. (2025년 9월 22일부터 예약 가능)",
+        (min_selectable_date, min_selectable_date + datetime.timedelta(days=22)),
         min_value=min_selectable_date,
         max_value=max_date,
         key="date_selector"
