@@ -2,18 +2,18 @@ import streamlit as st
 import pandas as pd
 import datetime
 import calendar
-from st_gsheets_connection import GSheetsConnection
 
-# ---- 설정 ----
-ADMIN_PASSWORD = st.secrets.get("admin_password", "")
-SHEET_URL = st.secrets["sheet_url"]
+import gspread
+from google.oauth2.service_account import Credentials
 
-# 구글 시트 연결 (앱 생명주기 동안 재사용)
 @st.cache_resource
-def get_gsheets_conn():
-    return st.connection("gsheets", type=GSheetsConnection)
-
-COLUMNS = ["name", "email", "phone", "date", "tickets", "reservation_time"]
+def get_ws():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_url(st.secrets["sheet_url"])
+    # 탭 이름
+    return sh.worksheet("reservations")
 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -34,19 +34,31 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
         df["reservation_time"] = rt.fillna(pd.Timestamp.now()).dt.strftime("%Y-%m-%d %H:%M:%S")
     return df[COLUMNS]
 
-def load_reservations() -> pd.DataFrame:
-    conn = get_gsheets_conn()
-    df = conn.read(spreadsheet=SHEET_URL, worksheet="reservations", ttl=0)
-    return _normalize_df(df)
+COLUMNS = ["name","email","phone","date","tickets","reservation_time"]
 
-def save_reservation(new_reservation: dict) -> None:
-    """현재 시트 내용을 읽고 한 줄 추가 후 전체 업데이트 (작은 규모에 적합)"""
-    conn = get_gsheets_conn()
-    df = load_reservations()
-    new_row = pd.DataFrame([new_reservation])
-    df = pd.concat([df, new_row], ignore_index=True)
-    # 구글 시트에 반영
-    conn.update(spreadsheet=SHEET_URL, worksheet="reservations", data=df)
+def load_reservations():
+    ws = get_ws()
+    rows = ws.get_all_records()  # 헤더 기준
+    df = pd.DataFrame(rows, columns=COLUMNS)
+    if df.empty:
+        return pd.DataFrame(columns=COLUMNS)
+    # 타입 보정
+    df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
+    return df
+
+def save_reservation(new_reservation: dict):
+    ws = get_ws()
+    # 헤더가 첫 행에 있어야 합니다. (name, email, ...)
+    values = [
+        new_reservation.get("name",""),
+        new_reservation.get("email",""),
+        new_reservation.get("phone",""),
+        new_reservation.get("date",""),
+        int(new_reservation.get("tickets", 0)),
+        new_reservation.get("reservation_time",""),
+    ]
+    ws.append_row(values, value_input_option="USER_ENTERED")
+
 
 # ------------------ 앱 UI ------------------
 
