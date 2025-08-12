@@ -5,6 +5,23 @@ import calendar
 
 import gspread
 from google.oauth2.service_account import Credentials
+# 임포트 근처 아무 곳에 임시로 추가
+import streamlit as st
+from st_gsheets_connection import GSheetsConnection
+
+def _debug_gsheets():
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = st.secrets["sheet_url"]      # <- 없으면 KeyError: 'sheet_url'
+        df = conn.read(spreadsheet=url, worksheet="reservations", ttl=0)
+        st.success("구글 시트 연결/읽기 성공")
+        st.write(df.head())
+    except Exception as e:
+        st.error(f"연결 실패: {repr(e)}")
+
+st.sidebar.button("구글시트 연결 테스트", on_click=_debug_gsheets)
+
+
 
 @st.cache_resource
 def get_ws():
