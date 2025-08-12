@@ -95,6 +95,12 @@ def show_user_interface():
         phone = st.text_input("핸드폰 번호")
         tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
         deposit_paid = st.checkbox("예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)")
+    if not deposit_paid:
+        st.info(
+            "아직 예약금을 입금하지 않으셨다면 **세금계산서 발행 및 입금 안내**를 위해 "
+            "**jiwan.hong@elicer.com** 으로 연락해주세요.\n\n"
+            "입금 계좌: **기업은행 065-151413-04-079 (예금주: (주)엘리스그룹)**"
+        )
 
         if st.button("예약하기"):
             if name and email and phone and deposit_paid:
