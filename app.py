@@ -11,9 +11,9 @@ ADMIN_PASSWORD = st.secrets.get("admin_password", "")
 SHEET_URL = st.secrets["sheet_url"]
 COLUMNS = ["name", "email", "phone", "date", "tickets", "reservation_time"]
 
-# 사용자/관리자 공통 색 구간
-# - 초록: 0~24장 (여유)
-# - 주황: 25~32장 (거의 마감)  ※ 24까지는 초록으로 처리
+# 색 기준(공통)
+# - 초록: 0~24장 (여유)        → LOW_MAX
+# - 주황: 25~32장 (거의 마감)  → MID_MAX
 # - 빨강: 32장 초과 (예약 불가)
 LOW_MAX = 24
 MID_MAX = 32
@@ -28,7 +28,6 @@ def get_ws():
     try:
         ws = sh.worksheet("reservations")
     except gspread.WorksheetNotFound:
-        # 탭이 없으면 만들어주고 헤더를 채움
         ws = sh.add_worksheet(title="reservations", rows="1000", cols=str(len(COLUMNS)))
         ws.update("A1:F1", [COLUMNS])
     return ws
@@ -36,14 +35,10 @@ def get_ws():
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUMNS)
-    # 타입 보정
     df["tickets"] = pd.to_numeric(df.get("tickets", 0), errors="coerce").fillna(0).astype(int)
-    # 날짜: 문자열(YYYY-MM-DD)로 보관
     df["date"] = pd.to_datetime(df.get("date"), errors="coerce").dt.strftime("%Y-%m-%d")
-    # 예약시각: 비면 현재시간
     rt = pd.to_datetime(df.get("reservation_time"), errors="coerce")
     df["reservation_time"] = rt.fillna(pd.Timestamp.now()).dt.strftime("%Y-%m-%d %H:%M:%S")
-    # 컬럼 순서 정리
     for c in COLUMNS:
         if c not in df.columns:
             df[c] = ""
@@ -51,14 +46,12 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def load_reservations() -> pd.DataFrame:
     ws = get_ws()
-    # 첫 행을 헤더로 읽기
     rows = ws.get_all_records()
     df = pd.DataFrame(rows)
     return _normalize_df(df)
 
 def save_reservation(new_reservation: dict) -> None:
     ws = get_ws()
-    # 헤더 보장
     if ws.row_count == 0:
         ws.update("A1:F1", [COLUMNS])
     values = [
@@ -71,9 +64,8 @@ def save_reservation(new_reservation: dict) -> None:
     ]
     ws.append_row(values, value_input_option="USER_ENTERED")
 
-# ---- 집계 및 색상 도우미 ----
+# ---- 집계/색상 도우미 ----
 def get_counts_by_date(df: pd.DataFrame) -> pd.DataFrame:
-    """date(날짜형)별 총 tickets를 반환"""
     out = df.copy()
     if out.empty:
         return pd.DataFrame(columns=["date", "tickets"])
@@ -82,18 +74,26 @@ def get_counts_by_date(df: pd.DataFrame) -> pd.DataFrame:
     return out.groupby("date", as_index=False)["tickets"].sum()
 
 def color_for_count(n: int) -> str:
-    """개수에 따른 배경색 반환(사용자/관리자 공통)"""
-    if n == 0:
-        return "#f3f4f6"  # 매우 옅은 회색(데이터 없음과 구분 용이)
+    # 요청: 0건도 초록색(여유)로 표시
     if n <= LOW_MAX:
-        return "#c8e6c9"  # 초록(여유)
+        return "#c8e6c9"   # 초록
     if n <= MID_MAX:
-        return "#ffe6b3"  # 주황(거의 마감)
-    return "#ffcccc"      # 빨강(예약 불가)
+        return "#ffe6b3"   # 주황
+    return "#ffcccc"       # 빨강
 
-# ---- 사용자용 달력(색만 표시, 숫자 미노출) ----
-def render_user_calendar(counts_df: pd.DataFrame):
-    st.subheader("달력 보기 (예약 현황 색상 안내)")
+def normalize_phone(s) -> str:
+    return "".join(ch for ch in str(s) if ch.isdigit())
+
+# ---- 사용자: 예약 현황 안내(달력) ----
+def page_calendar():
+    st.title("예약 현황 안내")
+    try:
+        df = load_reservations()
+        counts_df = get_counts_by_date(df)
+    except Exception as e:
+        counts_df = pd.DataFrame(columns=["date", "tickets"])
+        st.warning(f"달력 데이터를 불러오지 못했습니다: {e}")
+
     # 범례
     st.markdown(
         """
@@ -115,12 +115,11 @@ def render_user_calendar(counts_df: pd.DataFrame):
         unsafe_allow_html=True
     )
 
-    # 월 선택 (기본: 이번 달)
     today = datetime.date.today()
     year = st.selectbox("연도 선택", range(today.year, today.year + 2), index=0, key="user_year")
-    month = st.selectbox("월 선택", range(1, 13), index=today.month - 1, key="user_month")
+    month = st.selectbox("월 선택", range(1, 12 + 1), index=today.month - 1, key="user_month")
 
-    cal = calendar.Calendar(firstweekday=6)  # 일요일부터 시작
+    cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
     month_days = cal.monthdatescalendar(year, month)
 
     st.markdown(f"### {year}년 {month}월")
@@ -132,9 +131,8 @@ def render_user_calendar(counts_df: pd.DataFrame):
         cols = st.columns(7)
         for col, day in zip(cols, week):
             if day.month != month:
-                col.write("")  # 다른 달 날짜는 비움
+                col.write("")
                 continue
-            # 해당 날짜의 예약 수
             row = counts_df.loc[counts_df["date"] == day, "tickets"]
             count = int(row.iloc[0]) if not row.empty else 0
             bg = color_for_count(count)
@@ -142,26 +140,15 @@ def render_user_calendar(counts_df: pd.DataFrame):
                 f"<div style='background:{bg};border-radius:8px;padding:10px;text-align:center;"
                 f"border:1px solid rgba(0,0,0,0.06);'><b>{day.day}</b></div>"
             )
-            # 사용자 달력은 "색만" 보여주므로 숫자/상세는 표시하지 않음
             col.markdown(html, unsafe_allow_html=True)
 
     st.caption("※ 색상만으로 상태를 표시합니다. 초록=여유, 주황=거의 마감, 빨강=예약 불가")
 
-# --------------- 사용자 UI ---------------
-def show_user_interface():
-    st.title("엘리스 클라우드 B200 예약 서비스")
+# ---- 사용자: B200 예약하기(폼) ----
+def page_booking():
+    st.title("B200 예약하기")
     st.write("원하시는 날짜와 개수를 선택하고 정보를 남겨주세요.")
 
-    # 상단 달력(색상만) 먼저 렌더링
-    try:
-        df_all = load_reservations()
-        counts_df = get_counts_by_date(df_all)
-    except Exception as e:
-        counts_df = pd.DataFrame(columns=["date", "tickets"])
-        st.warning(f"달력 데이터를 불러오지 못했습니다: {e}")
-    render_user_calendar(counts_df)
-
-    # 2025-09-22부터 신청 가능
     min_selectable_date = datetime.date(2025, 9, 22)
     max_date = datetime.date(2026, 12, 31)
 
@@ -210,90 +197,137 @@ def show_user_interface():
             else:
                 st.warning("모든 정보를 입력하고 예약금 입금을 확인해주세요.")
 
+# ---- 사용자: 내 예약 확인(휴대폰 번호로 조회) ----
+def page_my_reservations():
+    st.title("내 예약 확인")
+    st.write("예약 신청 시 입력한 **휴대폰 번호**로 본인 예약 내역을 확인할 수 있습니다.")
+
+    phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678 또는 숫자만)")
+    if st.button("내 예약 조회"):
+        try:
+            df = load_reservations()
+            if df.empty:
+                st.info("등록된 예약이 없습니다.")
+                return
+
+            # 번호 정규화 후 비교
+            df["phone_norm"] = df["phone"].apply(normalize_phone)
+            target = normalize_phone(phone_input)
+
+            mine = df[df["phone_norm"] == target].copy()
+            if mine.empty:
+                st.warning("해당 번호로 등록된 예약을 찾지 못했습니다. 번호를 다시 확인해 주세요.")
+                return
+
+            # 보기 좋게 정리
+            mine["date"] = pd.to_datetime(mine["date"]).dt.date
+            mine = mine.sort_values(["date", "reservation_time"])
+
+            st.success(f"총 {len(mine)}건의 예약을 찾았습니다.")
+            for _, row in mine.iterrows():
+                st.write("---")
+                st.write(f"**날짜**: {row['date']}")
+                st.write(f"**예약 개수**: {int(row['tickets'])}장")
+                st.write(f"**예약 시각**: {row['reservation_time']}")
+                st.write(f"**이름/이메일(확인용)**: {row['name']} / {row['email']}")
+
+        except Exception as e:
+            st.error(f"조회 실패: {e}")
+
 # --------------- 관리자 UI ---------------
 def show_admin_interface():
     st.title("관리자 페이지")
-    password = st.text_input("비밀번호를 입력하세요.", type="password")
+    try:
+        df = load_reservations()
+    except Exception as e:
+        st.error(f"시트 읽기 실패: {e}")
+        return
 
-    if password == ADMIN_PASSWORD:
-        try:
-            df = load_reservations()
-        except Exception as e:
-            st.error(f"시트 읽기 실패: {e}")
-            return
+    if df.empty:
+        st.info("아직 예약된 내역이 없습니다.")
+        return
 
-        if df.empty:
-            st.info("아직 예약된 내역이 없습니다.")
-            return
+    df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    reservation_counts = df.groupby("date", as_index=False)["tickets"].sum()
 
-        # 집계용 변환
-        df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
-        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-        reservation_counts = df.groupby("date", as_index=False)["tickets"].sum()
+    st.subheader("일자별 총 예약 개수 (달력뷰)")
+    today = datetime.date.today()
+    current_year = today.year
+    current_month = today.month
 
-        st.subheader("일자별 총 예약 개수 (달력뷰)")
-        today = datetime.date.today()
-        current_year = today.year
-        current_month = today.month
+    year = st.selectbox("연도 선택", range(current_year, 2027), index=0)
+    month = st.selectbox("월 선택", range(1, 13), index=current_month - 1)
 
-        year = st.selectbox("연도 선택", range(current_year, 2027), index=0)
-        month = st.selectbox("월 선택", range(1, 13), index=current_month - 1)
+    cal = calendar.Calendar(firstweekday=6)
+    month_days = cal.monthdatescalendar(year, month)
 
-        cal = calendar.Calendar(firstweekday=6)  # 일요일부터
-        month_days = cal.monthdatescalendar(year, month)
+    st.markdown(f"### {year}년 {month}월")
 
-        st.markdown(f"### {year}년 {month}월")
+    cols = st.columns(7)
+    for col, weekday in zip(cols, ["일", "월", "화", "수", "목", "금", "토"]):
+        col.write(f"**{weekday}**")
 
+    for week in month_days:
         cols = st.columns(7)
-        for col, weekday in zip(cols, ["일", "월", "화", "수", "목", "금", "토"]):
-            col.write(f"**{weekday}**")
+        for col, day in zip(cols, week):
+            if day.month != month:
+                col.write("")
+                continue
+            day_count = reservation_counts.loc[reservation_counts["date"] == day, "tickets"]
+            count = int(day_count.iloc[0]) if not day_count.empty else 0
+            bg_color = color_for_count(count)
+            if count > 0:
+                html = (
+                    f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
+                    f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
+                    f"<b>{day.day}</b><br><small>({count}장)</small></div>"
+                )
+            else:
+                html = (
+                    f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
+                    f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
+                    f"<b>{day.day}</b></div>"
+                )
+            col.markdown(html, unsafe_allow_html=True)
 
-        for week in month_days:
-            cols = st.columns(7)
-            for col, day in zip(cols, week):
-                if day.month != month:
-                    col.write("")
-                    continue
+    st.subheader("날짜별 상세 예약 정보")
+    sorted_dates = sorted({d.strftime("%Y-%m-%d") for d in df["date"]})
+    selected_date = st.selectbox("상세 정보를 보고 싶은 날짜를 선택하세요.", sorted_dates)
+    if selected_date:
+        st.write(f"**{selected_date}** 예약자 목록")
+        target = pd.to_datetime(selected_date).date()
+        for _, row in df[df["date"] == target].iterrows():
+            st.write("---")
+            st.write(f"**이름**: {row['name']}")
+            st.write(f"**이메일**: {row['email']}")
+            st.write(f"**핸드폰**: {row['phone']}")
+            st.write(f"**예약 개수**: {int(row['tickets'])}장")
+            st.write(f"**예약 시각**: {row['reservation_time']}")
 
-                day_count = reservation_counts.loc[reservation_counts["date"] == day, "tickets"]
-                count = int(day_count.iloc[0]) if not day_count.empty else 0
-                bg_color = color_for_count(count)
-                # 관리자 화면은 숫자도 함께 표시
-                if count > 0:
-                    html = (
-                        f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
-                        f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
-                        f"<b>{day.day}</b><br><small>({count}장)</small></div>"
-                    )
-                else:
-                    html = (
-                        f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
-                        f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
-                        f"<b>{day.day}</b></div>"
-                    )
-                col.markdown(html, unsafe_allow_html=True)
-
-        st.subheader("날짜별 상세 예약 정보")
-        sorted_dates = sorted({d.strftime("%Y-%m-%d") for d in df["date"]})
-        selected_date = st.selectbox("상세 정보를 보고 싶은 날짜를 선택하세요.", sorted_dates)
-        if selected_date:
-            st.write(f"**{selected_date}** 예약자 목록")
-            target = pd.to_datetime(selected_date).date()
-            for _, row in df[df["date"] == target].iterrows():
-                st.write("---")
-                st.write(f"**이름**: {row['name']}")
-                st.write(f"**이메일**: {row['email']}")
-                st.write(f"**핸드폰**: {row['phone']}")
-                st.write(f"**예약 개수**: {int(row['tickets'])}장")
-                st.write(f"**예약 시각**: {row['reservation_time']}")
-
-    elif password:
-        st.error("비밀번호가 올바르지 않습니다.")
-
-# --------------- 메인 ---------------
+# --------------- 사이드바 / 라우팅 ---------------
 st.sidebar.title("메뉴")
-mode = st.sidebar.radio("모드 선택", ["사용자", "관리자"])
-if mode == "사용자":
-    show_user_interface()
-else:
+
+# 사용자 메뉴(두 페이지로 분리) + 내 예약 확인
+page = st.sidebar.radio("원하는 기능을 선택하세요", ["예약 현황 안내", "B200 예약하기", "내 예약 확인"], index=0)
+
+# 좌측 하단: 관리자 모드(별도)
+st.sidebar.divider()
+with st.sidebar.expander("관리자 모드", expanded=False):
+    pw = st.text_input("비밀번호", type="password", key="admin_pw_sidebar")
+    go_admin = st.button("접속하기", key="admin_login_btn")
+    if go_admin and pw == ADMIN_PASSWORD:
+        st.session_state["admin_authenticated"] = True
+    elif go_admin and pw != ADMIN_PASSWORD:
+        st.session_state["admin_authenticated"] = False
+        st.sidebar.error("비밀번호가 올바르지 않습니다.")
+
+if st.session_state.get("admin_authenticated"):
     show_admin_interface()
+else:
+    if page == "예약 현황 안내":
+        page_calendar()
+    elif page == "B200 예약하기":
+        page_booking()
+    else:
+        page_my_reservations()
