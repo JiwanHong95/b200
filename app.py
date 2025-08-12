@@ -323,3 +323,53 @@ def show_admin_interface():
                     f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
                     f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
                     f"<b>{day.day}</b><br><small>({count}장)</small></div>"
+                )
+            else:
+                html = (
+                    f"<div style='background:{bg_color}; border-radius:8px; padding:8px; "
+                    f"border:1px solid rgba(0,0,0,0.06); text-align:center;'>"
+                    f"<b>{day.day}</b></div>"
+                )
+            col.markdown(html, unsafe_allow_html=True)
+
+    st.subheader("날짜별 상세 예약 정보")
+    sorted_dates = sorted({d.strftime("%Y-%m-%d") for d in df["date"]})
+    selected_date = st.selectbox("상세 정보를 보고 싶은 날짜를 선택하세요.", sorted_dates)
+    if selected_date:
+        st.write(f"**{selected_date}** 예약자 목록")
+        target = pd.to_datetime(selected_date).date()
+        for _, row in df[df["date"] == target].iterrows():
+            st.write("---")
+            st.write(f"**이름**: {row['name']}")
+            st.write(f"**이메일**: {row['email']}")
+            st.write(f"**핸드폰**: {row['phone']}")
+            st.write(f"**예약 개수**: {int(row['tickets'])}장")
+            st.write(f"**시간**: {row.get('start_time','')} ~ {row.get('end_time','')}")
+            st.write(f"**예약 시각**: {row['reservation_time']}")
+
+# --------------- 사이드바 / 라우팅 ---------------
+st.sidebar.title("메뉴")
+
+# 사용자 메뉴(세 페이지) + 내 예약 확인
+page = st.sidebar.radio("원하는 기능을 선택하세요", ["예약 현황 안내", "B200 예약하기", "내 예약 확인"], index=0)
+
+# 좌측 하단: 관리자 모드(별도)
+st.sidebar.divider()
+with st.sidebar.expander("관리자 모드", expanded=False):
+    pw = st.text_input("비밀번호", type="password", key="admin_pw_sidebar")
+    go_admin = st.button("접속하기", key="admin_login_btn")
+    if go_admin and pw == ADMIN_PASSWORD:
+        st.session_state["admin_authenticated"] = True
+    elif go_admin and pw != ADMIN_PASSWORD:
+        st.session_state["admin_authenticated"] = False
+        st.sidebar.error("비밀번호가 올바르지 않습니다.")
+
+if st.session_state.get("admin_authenticated"):
+    show_admin_interface()
+else:
+    if page == "예약 현황 안내":
+        page_calendar()
+    elif page == "B200 예약하기":
+        page_booking()
+    else:
+        page_my_reservations()
