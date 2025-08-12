@@ -75,7 +75,7 @@ def show_user_interface():
     st.write("원하시는 날짜와 개수를 선택하고 정보를 남겨주세요.")
 
     # 2025-09-22부터 신청 가능
-    min_selectable_date = datetime.date(2025, 9, 22)
+    min_selectable_date = datetime.date(2025, 9, 1)
     
     reservation_dates = st.date_input(
         "예약 날짜를 선택하세요. (2025년 9월 22일부터 예약 가능)",
