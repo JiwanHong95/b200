@@ -6,6 +6,45 @@ import calendar
 import gspread
 from google.oauth2.service_account import Credentials
 
+import traceback
+import gspread
+from google.oauth2.service_account import Credentials
+
+def _debug_gsheets():
+    try:
+        st.info("Secrets 키 확인 중…")
+        url = st.secrets["sheet_url"]                     # 없으면 KeyError
+        acct = st.secrets["gcp_service_account"]          # 없으면 KeyError
+        st.write("sheet_url OK")
+        st.write("service account email:", acct.get("client_email", "(없음)"))
+
+        st.info("인증/연결 확인 중…")
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(acct, scopes=scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_url(url)                          # 권한 없으면 PERMISSION 에러
+        st.success(f"스프레드시트 제목: {sh.title}")
+
+        titles = [ws.title for ws in sh.worksheets()]
+        st.write("워크시트 목록:", titles)
+
+        st.info("쓰기 테스트(임시 행 추가) 중…")
+        try:
+            ws = sh.worksheet("reservations")             # 없으면 WorksheetNotFound
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="reservations", rows="1000", cols="6")
+            ws.update("A1:F1", [["name","email","phone","date","tickets","reservation_time"]])
+        ws.append_row(["__diag__", "t@t.com", "000", "2025-09-01", 1, "test"], value_input_option="USER_ENTERED")
+        st.success("쓰기 테스트 성공! (맨 아래 __diag__ 행이 추가됐는지 시트에서 확인)")
+
+    except Exception as e:
+        st.error("연결/쓰기 실패")
+        st.code(traceback.format_exc())
+
+st.sidebar.button("구글시트 연결 테스트", on_click=_debug_gsheets)
+
+
+
 # ---------------- 설정 ----------------
 ADMIN_PASSWORD = st.secrets.get("admin_password", "")
 SHEET_URL = st.secrets["sheet_url"]
