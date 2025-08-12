@@ -16,10 +16,10 @@ COLUMNS = ["name", "email", "phone", "date", "tickets", "start_time", "end_time"
 OPEN_DATE = datetime.date(2025, 9, 22)
 
 # 색 기준(공통)
-# - 초록: 0~24장 (여유)
-# - 주황: 25~32장 (거의 마감)
+# - 초록: 0~22장 (여유)
+# - 주황: 23~32장 (마감 임박)
 # - 빨강: 32장 초과 (예약 불가)
-LOW_MAX = 24
+LOW_MAX = 22
 MID_MAX = 32
 GREY_BG = "#e5e7eb"  # 오픈 전 회색
 
@@ -117,15 +117,15 @@ def page_calendar():
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#c8e6c9;border:1px solid #b3dcb6;border-radius:3px;"></span>
-            <small>여유 (0–24장)</small>
+            <small>여유</small>
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#ffe6b3;border:1px solid #f4d28e;border-radius:3px;"></span>
-            <small>거의 마감 (25–32장)</small>
+            <small>마감 임박</small>
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#ffcccc;border:1px solid #f3a7a7;border-radius:3px;"></span>
-            <small>예약 불가 (32장 초과)</small>
+            <small>예약 불가</small>
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#e5e7eb;border:1px solid #d1d5db;border-radius:3px;"></span>
@@ -169,7 +169,6 @@ def page_calendar():
             )
             col.markdown(html, unsafe_allow_html=True)
 
-    st.caption("※ 색상만으로 상태를 표시합니다. 초록=여유, 주황=거의 마감, 빨강=예약 불가, 회색=예약 오픈 전(9/21 이전)")
 
 # ---- 사용자: B200 예약하기(폼) ----
 def page_booking():
@@ -239,7 +238,7 @@ def page_booking():
 # ---- 사용자: 내 예약 확인(휴대폰 번호로 조회) ----
 def page_my_reservations():
     st.title("내 예약 확인")
-    st.write("예약 신청 시 입력한 **휴대폰 번호**로 본인 예약 내역을 확인합니다. (기간과 장수만 표시)")
+    st.write("예약 신청 시 입력한 **휴대폰 번호**로 본인 예약 내역을 확인합니다.")
 
     phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678 또는 숫자만)")
     if st.button("내 예약 조회"):
