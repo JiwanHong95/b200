@@ -74,12 +74,12 @@ def show_user_interface():
     st.title("엘리스 클라우드 B200 예약 서비스")
     st.write("원하시는 날짜와 개수를 선택하고 정보를 남겨주세요.")
 
-    min_selectable_date = datetime.date(2025, 9, 1)
-    max_date = datetime.date(2026, 12, 31)
-
+    # 2025-09-22부터 신청 가능
+    min_selectable_date = datetime.date(2025, 9, 22)
+    
     reservation_dates = st.date_input(
         "예약 날짜를 선택하세요. (2025년 9월 22일부터 예약 가능)",
-        (min_selectable_date, min_selectable_date + datetime.timedelta(days=22)),
+        (min_selectable_date, min_selectable_date + datetime.timedelta(days=1)),
         min_value=min_selectable_date,
         max_value=max_date,
         key="date_selector"
