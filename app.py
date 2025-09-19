@@ -193,7 +193,7 @@ def page_booking():
 
     if isinstance(reservation_dates, tuple) and len(reservation_dates) == 2:
         start_date, end_date = reservation_dates
-        st.write(f"선택하신 예약 기간: **{start_date}** 부터 **{end_date}** 까지")
+        st.write(f"선택하신 예약 기간: **{start_date} {start_time}** 부터 **{end_date} {end_time}** 까지")
         if end_time <= start_time:
             st.warning("종료 시간이 시작 시간보다 커야 합니다.")
 
