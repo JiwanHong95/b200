@@ -129,7 +129,7 @@ def page_calendar():
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#e5e7eb;border:1px solid #d1d5db;border-radius:3px;"></span>
-            <small>예약가능일 아님 (10월 한 달간) </small>
+            <small>예약가능일 아님 (10월 한 달간만 예약 가능) </small>
           </span>
         </div>
         """,
