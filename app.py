@@ -13,7 +13,7 @@ SHEET_URL = st.secrets["sheet_url"]
 COLUMNS = ["name", "email", "phone", "date", "tickets", "start_time", "end_time", "reservation_time"]
 
 # 예약 오픈일(이전 날짜는 사용자 달력에서 회색 처리)
-OPEN_DATE = datetime.date(2025, 9, 22)
+OPEN_DATE = datetime.date(2025, 10, 1)
 
 # 색 기준(공통)
 # - 초록: 0~22장 (여유)
@@ -176,10 +176,10 @@ def page_booking():
     st.write("원하시는 날짜와 **시간** 및 개수를 선택하고 정보를 남겨주세요.")
 
     min_selectable_date = OPEN_DATE
-    max_date = datetime.date(2026, 12, 31)
+    max_date = datetime.date(2025, 10, 29)
 
     reservation_dates = st.date_input(
-        "예약 날짜를 선택하세요. (2025년 9월 22일부터 예약 가능)",
+        "예약 날짜를 선택하세요. (2025년 10월 1일부터 예약 가능)",
         (min_selectable_date, min_selectable_date + datetime.timedelta(days=1)),
         min_value=min_selectable_date,
         max_value=max_date,
