@@ -176,7 +176,7 @@ def page_booking():
     st.write("원하시는 날짜와 **시간** 및 개수를 선택하고 정보를 남겨주세요.")
 
     min_selectable_date = OPEN_DATE
-    max_date = datetime.date(2025, 10, 29)
+    max_date = datetime.date(2026, 12, 31)
 
     reservation_dates = st.date_input(
         "예약 날짜를 선택하세요. (2026년 1월 7일부터 예약 가능)",
