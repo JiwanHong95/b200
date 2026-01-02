@@ -273,7 +273,7 @@ def page_booking():
         st.subheader("예약자 정보 입력")
         name = st.text_input("이름")
         email = st.text_input("이메일")
-        phone = st.text_input("핸드폰 번호")
+        phone = st.text_input("핸드폰 번호(양식: 010-xxxx-xxxx"))
         tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
         deposit_paid = st.checkbox("예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)")
         if not deposit_paid:
