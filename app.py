@@ -129,7 +129,7 @@ def page_calendar():
           </span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <span style="display:inline-block;width:14px;height:14px;background:#e5e7eb;border:1px solid #d1d5db;border-radius:3px;"></span>
-            <small>예약가능일 아님 (10월 한 달간만 예약 가능) </small>
+            <small>예약가능일 아님 </small>
           </span>
         </div>
         """,
@@ -179,7 +179,7 @@ def page_booking():
     max_date = datetime.date(2025, 10, 29)
 
     reservation_dates = st.date_input(
-        "예약 날짜를 선택하세요. (2025년 10월 1일부터 예약 가능)",
+        "예약 날짜를 선택하세요. (2026년 1월 7일부터 예약 가능)",
         (min_selectable_date, min_selectable_date + datetime.timedelta(days=1)),
         min_value=min_selectable_date,
         max_value=max_date,
