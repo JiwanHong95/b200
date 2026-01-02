@@ -8,7 +8,7 @@ from google.oauth2.service_account import Credentials
 
 # ---------------- 설정 ----------------
 ADMIN_PASSWORD = st.secrets.get("admin_password", "")
-SHEET_URL = st.secrets["sheet_url"]
+SHEET_URL = st.secrets.get("sheet_url", "")
 
 # ✅ 컬럼(스토리지/서비스/특이사항 추가)
 COLUMNS = [
@@ -33,6 +33,9 @@ GREY_BG = "#e5e7eb"  # 오픈 전 회색
 # --------- Google Sheets 연결/유틸 ---------
 @st.cache_resource
 def get_ws():
+    if not SHEET_URL:
+        raise RuntimeError("sheet_url is not configured in st.secrets")
+
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     gc = gspread.authorize(creds)
@@ -217,102 +220,111 @@ def page_booking():
     start_time = st.time_input("시작 시간", value=datetime.time(9, 0), key="use_start")
     end_time = st.time_input("종료 시간", value=datetime.time(18, 0), key="use_end")
 
+    # reservation_dates can be a single date or a (start, end) tuple
     if isinstance(reservation_dates, tuple) and len(reservation_dates) == 2:
         start_date, end_date = reservation_dates
-        st.write(f"선택하신 예약 기간: **{start_date} {start_time}** 부터 **{end_date} {end_time}** 까지")
-        if end_time <= start_time:
-            st.warning("종료 시간이 시작 시간보다 커야 합니다.")
+    else:
+        start_date = end_date = reservation_dates
 
-        # ✅ 서비스 유형 선택 + 설명
-        st.subheader("서비스 유형 선택")
-        service_type = st.radio(
-            "서비스 유형",
-            ["엘리스AI클라우드 런박스", "ECI"],
-            index=0,
-            horizontal=True
+    st.write(f"선택하신 예약 기간: **{start_date} {start_time}** 부터 **{end_date} {end_time}** 까지")
+    if end_time <= start_time:
+        st.warning("종료 시간이 시작 시간보다 커야 합니다.")
+
+    # ✅ 서비스 유형 선택 + 설명
+    st.subheader("서비스 유형 선택")
+    service_type = st.radio(
+        "서비스 유형",
+        ["엘리스AI클라우드 런박스", "ECI"],
+        index=0,
+        horizontal=True
+    )
+
+    if service_type == "엘리스AI클라우드 런박스":
+        st.info(
+            "엘리스 AI 클라우드 런박스�� 사전 구성된 인스턴스를 선택하는 것만으로 즉시 개발·실행 환경을 활용할 수 있는 관리형 PaaS 솔루션입니다."
+        )
+    else:
+        st.info(
+            "ECI(Elice Cloud Infrastructure)는 관리자 포털을 통해 VM, 네트워크, 클러스터를 설계·구성·운영할 수 있는 VM 기반 AI 인프라(IaaS) 플랫폼입니다."
         )
 
-        if service_type == "엘리스AI클라우드 런박스":
-            st.info(
-                "엘리스 AI 클라우드 런박스는 사전 구성된 인스턴스를 선택하는 것만으로 즉시 개발·실행 환경을 활용할 수 있는 관리형 PaaS 솔루션입니다."
-            )
+    # ✅ 스토리지 입력
+    st.subheader("스토리지 설정")
+    st.caption(
+        "여러 개 인스턴스를 구성하실 경우 **총 용량**을 작성해주시고, "
+        "**특이사항**에 각 인스턴스별 스토리지를 작성해 주세요."
+    )
+
+    storage_gib = st.number_input(
+        "스토리지 용량 (GiB)",
+        min_value=0,
+        max_value=102400,
+        value=1024,
+        step=1,
+        help="GiB 단위로 입력하세요. 기본 1024GiB, 최대 102400GiB"
+    )
+
+    storage_type = st.selectbox(
+        "스토리지 유형",
+        ["Object Storage", "Block Storage"],
+        index=0
+    )
+
+    # ✅ 특이사항 입력(예시 포함)
+    st.subheader("특이사항")
+    notes = st.text_area(
+        "추가 요청/구성/네트워크/인스턴스 유형 등 특이사항을 적어주세요.",
+        placeholder='e.g., G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다. "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
+    )
+
+    st.subheader("예약자 정보 입력")
+    name = st.text_input("이름")
+    email = st.text_input("이메일")
+    phone = st.text_input("핸드폰 번호(양식: 010-xxxx-xxxx")
+    tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
+    deposit_paid = st.checkbox("예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)")
+    if not deposit_paid:
+        st.info(
+            "아직 예약금을 입금하지 않으셨다면 **세금계산서 발행 및 입금 안내**를 위해 "
+            "**jiwan.hong@elicer.com** 으로 연락해주세요.\n\n"
+            "입금 계좌: **기업은행 065-151413-04-079 (예금주: (주)엘리스그룹)**"
+        )
+
+    if st.button("예약하기"):
+        # 입력 유효성 검증
+        if not (name and email and phone):
+            st.warning("이름/이메일/핸드폰 번호를 모두 입력해 주세요.")
+        elif not deposit_paid:
+            st.warning("예약금을 먼저 입금해 주세요.")
+        elif end_time <= start_time:
+            st.warning("종료 시간은 시작 시간보다 늦어야 합니다.")
         else:
-            st.info(
-                "ECI(Elice Cloud Infrastructure)는 관리자 포털을 통해 VM, 네트워크, 클러스터를 설계·구성·운영할 수 있는 VM 기반 AI 인프라(IaaS) 플랫폼입니다."
-            )
-
-        # ✅ 스토리지 입력
-        st.subheader("스토리지 설정")
-        st.caption(
-            "여러 개 인스턴스를 구성하실 경우 **총 용량**을 작성해주시고, "
-            "**특이사항**에 각 인스턴스별 스토리지를 작성해 주세요."
-        )
-
-        storage_gib = st.number_input(
-            "스토리지 용량 (GiB)",
-            min_value=0,
-            max_value=102400,
-            value=1024,
-            step=1,
-            help="GiB 단위로 입력하세요. 기본 1024GiB, 최대 102400GiB"
-        )
-
-        storage_type = st.selectbox(
-            "스토리지 유형",
-            ["Object Storage", "Block Storage"],
-            index=0
-        )
-
-        # ✅ 특이사항 입력(예시 포함)
-        st.subheader("특이사항")
-        notes = st.text_area(
-            "추가 요청/구성/네트워크/인스턴스 유형 등 특이사항을 적어주세요.",
-            placeholder='e.g., G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다. "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
-        )
-
-        st.subheader("예약자 정보 입력")
-        name = st.text_input("이름")
-        email = st.text_input("이메일")
-        phone = st.text_input("핸드폰 번호(양식: 010-xxxx-xxxx"))
-        tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
-        deposit_paid = st.checkbox("예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)")
-        if not deposit_paid:
-            st.info(
-                "아직 예약금을 입금하지 않으셨다면 **세금계산서 발행 및 입금 안내**를 위해 "
-                "**jiwan.hong@elicer.com** 으로 연락해주세요.\n\n"
-                "입금 계좌: **기업은행 065-151413-04-079 (예금주: (주)엘리스그룹)**"
-            )
-
-        if st.button("예약하기"):
-            if name and email and phone and deposit_paid and end_time > start_time:
-                try:
-                    delta = end_date - start_date
-                    stime = start_time.strftime("%H:%M")
-                    etime = end_time.strftime("%H:%M")
-                    nowstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    for i in range(delta.days + 1):
-                        day = start_date + datetime.timedelta(days=i)
-                        save_reservation({
-                            "name": name,
-                            "email": email,
-                            "phone": phone,
-                            "date": day.strftime("%Y-%m-%d"),
-                            "tickets": int(tickets),
-                            "start_time": stime,
-                            "end_time": etime,
-                            "reservation_time": nowstr,
-                            "storage_gib": int(storage_gib),
-                            "storage_type": storage_type,
-                            "service_type": service_type,
-                            "notes": notes,
-                        })
-                    st.success(
-                        f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 {tickets}장 예약이 완료되었습니다!"
-                    )
-                except Exception as e:
-                    st.error(f"저장 실패: {e}")
-            else:
-                st.warning("모든 정보를 입력하고, 예약금 입금 및 시간 선택을 확인해 주세요.")
+            try:
+                delta = (end_date - start_date).days
+                stime = start_time.strftime("%H:%M")
+                etime = end_time.strftime("%H:%M")
+                nowstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for i in range(delta + 1):
+                    day = start_date + datetime.timedelta(days=i)
+                    save_reservation({
+                        "name": name,
+                        "email": email,
+                        "phone": phone,
+                        "date": day.strftime("%Y-%m-%d"),
+                        "tickets": int(tickets),
+                        "start_time": stime,
+                        "end_time": etime,
+                        "reservation_time": nowstr,
+                        "storage_gib": int(storage_gib),
+                        "storage_type": storage_type,
+                        "service_type": service_type,
+                        "notes": notes,
+                    })
+                st.success(
+                    f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 {tickets}장 예약이 완료되었습니다!"
+                )
+            except Exception as e:
+                st.error(f"저장 실패: {e}")
 
 # ---- 사용자: 내 예약 확인(휴대폰 번호로 조회) ----
 def page_my_reservations():
