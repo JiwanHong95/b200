@@ -9,16 +9,23 @@ from google.oauth2.service_account import Credentials
 # ---------------- 설정 ----------------
 ADMIN_PASSWORD = st.secrets.get("admin_password", "")
 SHEET_URL = st.secrets["sheet_url"]
-# 시트 컬럼(시간 컬럼 추가!)
-COLUMNS = ["name", "email", "phone", "date", "tickets", "start_time", "end_time", "reservation_time"]
+
+# ✅ 컬럼(스토리지/서비스/특이사항 추가)
+COLUMNS = [
+    "name", "email", "phone", "date", "tickets",
+    "start_time", "end_time", "reservation_time",
+    "storage_gib", "storage_type",
+    "service_type",
+    "notes"
+]
 
 # 예약 오픈일(이전 날짜는 사용자 달력에서 회색 처리)
 OPEN_DATE = datetime.date(2026, 1, 7)
 
 # 색 기준(공통)
 # - 초록: 0~22장 (여유)
-# - 주황: 23~512장 (마감 임박)
-# - 빨강: 512장 초과 (예약 불가)
+# - 주황: 23~64장 (마감 임박)
+# - 빨강: 64장 초과 (예약 불가)
 LOW_MAX = 22
 MID_MAX = 64
 GREY_BG = "#e5e7eb"  # 오픈 전 회색
@@ -36,11 +43,14 @@ def get_ws():
         ws = sh.add_worksheet(title="reservations", rows="1000", cols=str(len(COLUMNS)))
         ws.update("A1", [COLUMNS])  # 헤더 생성
         return ws
+
     # 헤더 보정(새 컬럼 반영)
     try:
         header = ws.row_values(1)
     except Exception:
         header = []
+
+    # ✅ 기존 방식 유지: 헤더가 다르면 전체를 덮어씀(원하면 안전버전으로 바꿔드릴 수 있어요)
     if header != COLUMNS:
         ws.update("A1", [COLUMNS])
     return ws
@@ -48,16 +58,28 @@ def get_ws():
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUMNS)
+
     # 누락 컬럼 채우기
     for c in COLUMNS:
         if c not in df.columns:
             df[c] = ""
+
     # 타입 보정
     df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
     # 예약시각: 비면 현재시간
     rt = pd.to_datetime(df["reservation_time"], errors="coerce")
     df["reservation_time"] = rt.fillna(pd.Timestamp.now()).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # ✅ 스토리지: 비면 기본 1024, 최대 102400
+    df["storage_gib"] = pd.to_numeric(df["storage_gib"], errors="coerce").fillna(1024).astype(int)
+    df["storage_gib"] = df["storage_gib"].clip(lower=0, upper=102400)
+
+    # 나머지 텍스트 컬럼 None 방지
+    for c in ["storage_type", "service_type", "notes"]:
+        df[c] = df[c].fillna("").astype(str)
+
     return df[COLUMNS]
 
 def load_reservations() -> pd.DataFrame:
@@ -77,6 +99,10 @@ def save_reservation(new_reservation: dict) -> None:
         new_reservation.get("start_time", ""),
         new_reservation.get("end_time", ""),
         new_reservation.get("reservation_time", ""),
+        int(new_reservation.get("storage_gib", 1024)),
+        new_reservation.get("storage_type", ""),
+        new_reservation.get("service_type", ""),
+        new_reservation.get("notes", ""),
     ]
     ws.append_row(values, value_input_option="USER_ENTERED")
 
@@ -197,6 +223,53 @@ def page_booking():
         if end_time <= start_time:
             st.warning("종료 시간이 시작 시간보다 커야 합니다.")
 
+        # ✅ 서비스 유형 선택 + 설명
+        st.subheader("서비스 유형 선택")
+        service_type = st.radio(
+            "서비스 유형",
+            ["엘리스AI클라우드 런박스", "ECI"],
+            index=0,
+            horizontal=True
+        )
+
+        if service_type == "엘리스AI클라우드 런박스":
+            st.info(
+                "엘리스 AI 클라우드 런박스는 사전 구성된 인스턴스를 선택하는 것만으로 즉시 개발·실행 환경을 활용할 수 있는 관리형 PaaS 솔루션입니다."
+            )
+        else:
+            st.info(
+                "ECI(Elice Cloud Infrastructure)는 관리자 포털을 통해 VM, 네트워크, 클러스터를 설계·구성·운영할 수 있는 VM 기반 AI 인프라(IaaS) 플랫폼입니다."
+            )
+
+        # ✅ 스토리지 입력
+        st.subheader("스토리지 설정")
+        st.caption(
+            "여러 개 인스턴스를 구성하실 경우 **총 용량**을 작성해주시고, "
+            "**특이사항**에 각 인스턴스별 스토리지를 작성해 주세요."
+        )
+
+        storage_gib = st.number_input(
+            "스토리지 용량 (GiB)",
+            min_value=0,
+            max_value=102400,
+            value=1024,
+            step=1,
+            help="GiB 단위로 입력하세요. 기본 1024GiB, 최대 102400GiB"
+        )
+
+        storage_type = st.selectbox(
+            "스토리지 유형",
+            ["Object Storage", "Block Storage"],
+            index=0
+        )
+
+        # ✅ 특이사항 입력(예시 포함)
+        st.subheader("특이사항")
+        notes = st.text_area(
+            "추가 요청/구성/네트워크/인스턴스 유형 등 특이사항을 적어주세요.",
+            placeholder='e.g., G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다. "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
+        )
+
         st.subheader("예약자 정보 입력")
         name = st.text_input("이름")
         email = st.text_input("이메일")
@@ -228,8 +301,14 @@ def page_booking():
                             "start_time": stime,
                             "end_time": etime,
                             "reservation_time": nowstr,
+                            "storage_gib": int(storage_gib),
+                            "storage_type": storage_type,
+                            "service_type": service_type,
+                            "notes": notes,
                         })
-                    st.success(f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 {tickets}장 예약이 완료되었습니다!")
+                    st.success(
+                        f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 {tickets}장 예약이 완료되었습니다!"
+                    )
                 except Exception as e:
                     st.error(f"저장 실패: {e}")
             else:
@@ -259,10 +338,17 @@ def page_my_reservations():
 
             mine["date"] = pd.to_datetime(mine["date"]).dt.date
 
-            # 동일한 신청 시각(=한 번에 신청한 건)을 하나로 묶어 기간 계산
+            # 동일한 신청 시각(=한 번에 신청한 건)을 하나로 묶어 기간 + 추가 필드 표시
             grouped = (mine
                        .groupby(["reservation_time", "tickets"], as_index=False)
-                       .agg(start_date=("date", "min"), end_date=("date", "max"))
+                       .agg(
+                           start_date=("date", "min"),
+                           end_date=("date", "max"),
+                           service_type=("service_type", "first"),
+                           storage_gib=("storage_gib", "first"),
+                           storage_type=("storage_type", "first"),
+                           notes=("notes", "first"),
+                       )
                        .sort_values("start_date"))
 
             st.success(f"총 {len(grouped)}건의 예약을 찾았습니다.")
@@ -270,6 +356,10 @@ def page_my_reservations():
                 st.write("---")
                 st.write(f"**사용 기간**: {row['start_date']} ~ {row['end_date']}")
                 st.write(f"**장수**: {int(row['tickets'])}장")
+                st.write(f"**서비스 유형**: {row.get('service_type','')}")
+                st.write(f"**스토리지**: {int(row.get('storage_gib', 0))} GiB / {row.get('storage_type','')}")
+                if str(row.get("notes", "")).strip():
+                    st.write(f"**특이사항**: {row.get('notes','')}")
 
         except Exception as e:
             st.error(f"조회 실패: {e}")
@@ -339,12 +429,16 @@ def show_admin_interface():
         target = pd.to_datetime(selected_date).date()
         for _, row in df[df["date"] == target].iterrows():
             st.write("---")
-            st.write(f"**이름**: {row['name']}")
-            st.write(f"**이메일**: {row['email']}")
-            st.write(f"**핸드폰**: {row['phone']}")
-            st.write(f"**예약 개수**: {int(row['tickets'])}장")
+            st.write(f"**이름**: {row.get('name','')}")
+            st.write(f"**이메일**: {row.get('email','')}")
+            st.write(f"**핸드폰**: {row.get('phone','')}")
+            st.write(f"**예약 개수**: {int(row.get('tickets', 0))}장")
+            st.write(f"**서비스 유형**: {row.get('service_type','')}")
+            st.write(f"**스토리지**: {row.get('storage_gib','')} GiB / {row.get('storage_type','')}")
+            if str(row.get("notes", "")).strip():
+                st.write(f"**특이사항**: {row.get('notes','')}")
             st.write(f"**시간**: {row.get('start_time','')} ~ {row.get('end_time','')}")
-            st.write(f"**예약 시각**: {row['reservation_time']}")
+            st.write(f"**예약 시각**: {row.get('reservation_time','')}")
 
 # --------------- 사이드바 / 라우팅 ---------------
 st.sidebar.title("메뉴")
