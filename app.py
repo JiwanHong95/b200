@@ -13,14 +13,14 @@ SHEET_URL = st.secrets["sheet_url"]
 COLUMNS = ["name", "email", "phone", "date", "tickets", "start_time", "end_time", "reservation_time"]
 
 # 예약 오픈일(이전 날짜는 사용자 달력에서 회색 처리)
-OPEN_DATE = datetime.date(2025, 10, 1)
+OPEN_DATE = datetime.date(2026, 1, 7)
 
 # 색 기준(공통)
 # - 초록: 0~22장 (여유)
 # - 주황: 23~512장 (마감 임박)
 # - 빨강: 512장 초과 (예약 불가)
 LOW_MAX = 22
-MID_MAX = 512
+MID_MAX = 64
 GREY_BG = "#e5e7eb"  # 오픈 전 회색
 
 # --------- Google Sheets 연결/유틸 ---------
