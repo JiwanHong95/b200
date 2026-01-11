@@ -10,9 +10,10 @@ from google.oauth2.service_account import Credentials
 ADMIN_PASSWORD = st.secrets.get("admin_password", "")
 SHEET_URL = st.secrets.get("sheet_url", "")
 
-# ✅ 앱에서 사용하는 표준 컬럼(스토리지/서비스/특이사항 포함)
+# ✅ 컬럼(스토리지/서비스/특이사항 + B200/H100 분리)
 COLUMNS = [
-    "name", "email", "phone", "date", "tickets",
+    "name", "email", "phone", "date",
+    "b200_tickets", "h100_tickets",
     "start_time", "end_time", "reservation_time",
     "storage_gib", "storage_type",
     "service_type",
@@ -39,8 +40,7 @@ def _ensure_header(ws) -> list[str]:
     """
     ✅ 안전 버전:
     - 기존 헤더가 있으면 '덮어쓰기'가 아니라, 누락된 컬럼만 '뒤에 추가'합니다.
-    - 기존 컬럼 순서/기존 데이터 정렬이 깨지지 않도록 합니다.
-    - (중요) 저장할 때도 시트 헤더 순서에 맞춰 값을 넣도록 save_reservation에서 처리합니다.
+    - 저장할 때도 시트 헤더 순서에 맞춰 값을 넣도록 save_reservation에서 처리합니다.
     """
     try:
         header = ws.row_values(1)
@@ -49,7 +49,6 @@ def _ensure_header(ws) -> list[str]:
 
     header = [h.strip() for h in header if str(h).strip()]
 
-    # 헤더가 아예 없으면 표준 컬럼으로 생성
     if not header:
         new_header = COLUMNS[:]
     else:
@@ -58,15 +57,12 @@ def _ensure_header(ws) -> list[str]:
             if col not in new_header:
                 new_header.append(col)
 
-    # 컬럼 수가 부족하면 확장
     try:
         if ws.col_count < len(new_header):
             ws.resize(rows=ws.row_count, cols=len(new_header))
     except Exception:
-        # resize 실패해도 헤더 update는 시도
         pass
 
-    # 1행 업데이트 (기존 데이터는 그대로, 헤더만 안전하게 확장)
     if header != new_header:
         ws.update("A1", [new_header])
 
@@ -92,7 +88,6 @@ def get_ws():
         ws.update("A1", [COLUMNS])  # 신규 생성이면 표준 헤더
         return ws
 
-    # ✅ 안전한 헤더 보정
     _ensure_header(ws)
     return ws
 
@@ -101,25 +96,23 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUMNS)
 
-    # 누락 컬럼 채우기
     for c in COLUMNS:
         if c not in df.columns:
             df[c] = ""
 
-    # 타입 보정
-    df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
+    # ✅ GPU 수량(B200/H100)
+    df["b200_tickets"] = pd.to_numeric(df["b200_tickets"], errors="coerce").fillna(0).astype(int)
+    df["h100_tickets"] = pd.to_numeric(df["h100_tickets"], errors="coerce").fillna(0).astype(int)
+
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-    # 예약시각: 비면 현재시간
     rt = pd.to_datetime(df["reservation_time"], errors="coerce")
     df["reservation_time"] = rt.fillna(pd.Timestamp.now()).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 스토리지: 비면 기본 1024, 최대 102400
     df["storage_gib"] = pd.to_numeric(df["storage_gib"], errors="coerce").fillna(DEFAULT_STORAGE_GIB).astype(int)
     df["storage_gib"] = df["storage_gib"].clip(lower=0, upper=MAX_STORAGE_GIB)
 
-    # 텍스트 컬럼 None 방지
-    for c in ["storage_type", "service_type", "notes"]:
+    for c in ["storage_type", "service_type", "notes", "start_time", "end_time", "name", "email", "phone"]:
         df[c] = df[c].fillna("").astype(str)
 
     return df[COLUMNS]
@@ -127,29 +120,28 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def load_reservations() -> pd.DataFrame:
     ws = get_ws()
-    # get_all_records()는 헤더를 기준으로 dict를 만들어줌
     rows = ws.get_all_records()
     df = pd.DataFrame(rows)
+
+    # ✅ 이전 버전(tickets 컬럼) 호환: 있으면 b200_tickets로 흡수
+    if "tickets" in df.columns and "b200_tickets" not in df.columns:
+        df["b200_tickets"] = df["tickets"]
+
     return _normalize_df(df)
 
 
 def save_reservation(new_reservation: dict) -> None:
     ws = get_ws()
-    # ✅ 시트의 실제 헤더 순서대로 값을 맞춰서 저장 (순서 달라도 데이터 꼬임 방지)
     sheet_header = _ensure_header(ws)
 
-    # 기본값/타입 정리
     payload = dict(new_reservation)
-    payload["tickets"] = int(payload.get("tickets", 0) or 0)
+    payload["b200_tickets"] = int(payload.get("b200_tickets", 0) or 0)
+    payload["h100_tickets"] = int(payload.get("h100_tickets", 0) or 0)
     payload["storage_gib"] = int(payload.get("storage_gib", DEFAULT_STORAGE_GIB) or DEFAULT_STORAGE_GIB)
 
-    # 헤더 기준으로 row 생성(모르는 컬럼은 빈칸)
     values = []
     for col in sheet_header:
-        if col in payload:
-            values.append(payload.get(col, ""))
-        else:
-            values.append("")
+        values.append(payload.get(col, ""))
 
     ws.append_row(values, value_input_option="USER_ENTERED")
 
@@ -159,18 +151,23 @@ def get_counts_by_date(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     if out.empty:
         return pd.DataFrame(columns=["date", "tickets"])
-    out["tickets"] = pd.to_numeric(out["tickets"], errors="coerce").fillna(0).astype(int)
+
+    out["b200_tickets"] = pd.to_numeric(out["b200_tickets"], errors="coerce").fillna(0).astype(int)
+    out["h100_tickets"] = pd.to_numeric(out["h100_tickets"], errors="coerce").fillna(0).astype(int)
+
+    # 기존 달력 로직은 "총 GPU 장수" 기준으로 색칠(=b200+h100)
+    out["tickets"] = out["b200_tickets"] + out["h100_tickets"]
+
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.date
     return out.groupby("date", as_index=False)["tickets"].sum()
 
 
 def color_for_count(n: int) -> str:
-    # 요청: 0건도 초록색(여유)
     if n <= LOW_MAX:
-        return "#c8e6c9"  # 초록
+        return "#c8e6c9"
     if n <= MID_MAX:
-        return "#ffe6b3"  # 주황
-    return "#ffcccc"      # 빨강
+        return "#ffe6b3"
+    return "#ffcccc"
 
 
 def normalize_phone(s) -> str:
@@ -188,7 +185,6 @@ def page_calendar():
         counts_df = pd.DataFrame(columns=["date", "tickets"])
         st.warning(f"달력 데이터를 불러오지 못했습니다: {e}")
 
-    # 범례
     st.markdown(
         """
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
@@ -217,7 +213,7 @@ def page_calendar():
     year = st.selectbox("연도 선택", range(today.year, today.year + 2), index=0, key="user_year")
     month = st.selectbox("월 선택", range(1, 13), index=today.month - 1, key="user_month")
 
-    cal = calendar.Calendar(firstweekday=6)  # 일요일 시작
+    cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
     st.markdown(f"### {year}년 {month}월")
@@ -232,7 +228,6 @@ def page_calendar():
                 col.write("")
                 continue
 
-            # 오픈 이전 날짜는 무조건 회색
             if day < OPEN_DATE:
                 bg = GREY_BG
             else:
@@ -247,10 +242,10 @@ def page_calendar():
             col.markdown(html, unsafe_allow_html=True)
 
 
-# ---- 사용자: B200 예약하기(폼) ----
+# ---- 사용자: GPU 예약하기(폼) ----
 def page_booking():
-    st.title("B200 예약하기")
-    st.write("원하시는 날짜와 **시간** 및 개수를 선택하고 정보를 남겨주세요.")
+    st.title("GPU 예약하기")
+    st.write("원하시는 날짜와 **시간** 및 **GPU 종류별 장수(B200/H100)** 를 선택하고 정보를 남겨주세요.")
 
     min_selectable_date = OPEN_DATE
     max_date = datetime.date(2026, 12, 31)
@@ -267,7 +262,6 @@ def page_booking():
     start_time = st.time_input("시작 시간", value=datetime.time(9, 0), key="use_start")
     end_time = st.time_input("종료 시간", value=datetime.time(18, 0), key="use_end")
 
-    # single date or (start, end)
     if isinstance(reservation_dates, tuple) and len(reservation_dates) == 2:
         start_date, end_date = reservation_dates
     else:
@@ -277,7 +271,6 @@ def page_booking():
     if end_time <= start_time:
         st.warning("종료 시간이 시작 시간보다 커야 합니다.")
 
-    # ✅ 서비스 유형 선택 + 설명
     st.subheader("서비스 유형 선택")
     service_type = st.radio(
         "서비스 유형",
@@ -285,7 +278,6 @@ def page_booking():
         index=0,
         horizontal=True
     )
-
     if service_type == "엘리스AI클라우드 런박스":
         st.info(
             "엘리스 AI 클라우드 런박스는 사전 구성된 인스턴스를 선택하는 것만으로 즉시 개발·실행 환경을 활용할 수 있는 관리형 PaaS 솔루션입니다."
@@ -296,14 +288,16 @@ def page_booking():
             "ECI(Elice Cloud Infrastructure)는 관리자 포털을 통해 VM, 네트워크, 클러스터를 설계·구성·운영할 수 있는 VM 기반 AI 인프라(IaaS) 플랫폼입니다."
             "자세히 알아보기 : https://elice.io/ko/cloud/eci"
         )
-
-    # ✅ 스토리지 입력
+    
+    st.subheader("GPU 장수 입력")
+    b200_tickets = st.number_input("B200 장수", min_value=0, step=1, value=0)
+    h100_tickets = st.number_input("H100 장수", min_value=0, step=1, value=0)
+    
     st.subheader("스토리지 설정")
     st.caption(
         "여러 개 인스턴스를 구성하실 경우 **총 용량**을 작성해주시고, "
         "**특이사항**에 각 인스턴스별 스토리지를 작성해 주세요."
     )
-
     storage_gib = st.number_input(
         "스토리지 용량 (GiB)",
         min_value=0,
@@ -312,28 +306,22 @@ def page_booking():
         step=1,
         help=f"GiB 단위로 입력하세요. 기본 {DEFAULT_STORAGE_GIB}GiB, 최대 {MAX_STORAGE_GIB}GiB"
     )
+    storage_type = st.selectbox("스토리지 유형", ["Object Storage", "Block Storage"], index=0)
 
-    storage_type = st.selectbox(
-        "스토리지 유형",
-        ["Object Storage", "Block Storage"],
-        index=0
-    )
 
-    # ✅ 특이사항 입력(예시 포함)
     st.subheader("특이사항")
     notes = st.text_area(
         "추가 요청/구성/네트워크/인스턴스 유형 등 특이사항을 적어주세요.",
-        placeholder='e.g., "G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다.", "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
+        placeholder='e.g., G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다. "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
     )
 
     st.subheader("예약자 정보 입력")
     name = st.text_input("이름")
     email = st.text_input("이메일")
     phone = st.text_input("핸드폰 번호 (양식: 010-xxxx-xxxx)")
-    tickets = st.number_input("예약할 B200 장수를 입력하세요.", min_value=1, step=1, value=1)
 
     deposit_paid = st.checkbox(
-        "예약금을 입금했습니까? (입금해야 B200 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)"
+        "예약금을 입금했습니까? (입금해야 GPU 수량을 확정할 수 있으며, 일정별로 선착순 마감됩니다.)"
     )
     if not deposit_paid:
         st.info(
@@ -349,6 +337,8 @@ def page_booking():
             st.warning("예약금을 먼저 입금해 주세요.")
         elif end_time <= start_time:
             st.warning("종료 시간은 시작 시간보다 늦어야 합니다.")
+        elif (int(b200_tickets) + int(h100_tickets)) <= 0:
+            st.warning("B200 또는 H100 장수를 최소 1장 이상 입력해 주세요.")
         else:
             try:
                 delta_days = (end_date - start_date).days
@@ -363,7 +353,8 @@ def page_booking():
                         "email": email,
                         "phone": phone,
                         "date": day.strftime("%Y-%m-%d"),
-                        "tickets": int(tickets),
+                        "b200_tickets": int(b200_tickets),
+                        "h100_tickets": int(h100_tickets),
                         "start_time": stime,
                         "end_time": etime,
                         "reservation_time": nowstr,
@@ -374,7 +365,8 @@ def page_booking():
                     })
 
                 st.success(
-                    f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 {tickets}장 예약이 완료되었습니다!"
+                    f"**{name}** 님, {start_date}~{end_date} / {stime}–{etime}에 "
+                    f"B200 {int(b200_tickets)}장, H100 {int(h100_tickets)}장 예약이 완료되었습니다!"
                 )
             except Exception as e:
                 st.error(f"저장 실패: {e}")
@@ -385,7 +377,7 @@ def page_my_reservations():
     st.title("내 예약 확인")
     st.write("예약 신청 시 입력한 **휴대폰 번호**로 본인 예약 내역을 확인합니다.")
 
-    phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678)")
+    phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678 또는 숫자만)")
     if st.button("내 예약 조회"):
         try:
             df = load_reservations()
@@ -404,7 +396,7 @@ def page_my_reservations():
             mine["date"] = pd.to_datetime(mine["date"]).dt.date
 
             grouped = (mine
-                       .groupby(["reservation_time", "tickets"], as_index=False)
+                       .groupby(["reservation_time", "b200_tickets", "h100_tickets"], as_index=False)
                        .agg(
                            start_date=("date", "min"),
                            end_date=("date", "max"),
@@ -419,7 +411,8 @@ def page_my_reservations():
             for _, row in grouped.iterrows():
                 st.write("---")
                 st.write(f"**사용 기간**: {row['start_date']} ~ {row['end_date']}")
-                st.write(f"**장수**: {int(row['tickets'])}장")
+                st.write(f"**B200**: {int(row.get('b200_tickets', 0))}장")
+                st.write(f"**H100**: {int(row.get('h100_tickets', 0))}장")
                 st.write(f"**서비스 유형**: {row.get('service_type', '')}")
                 st.write(f"**스토리지**: {int(row.get('storage_gib', 0))} GiB / {row.get('storage_type', '')}")
                 if str(row.get("notes", "")).strip():
@@ -442,11 +435,15 @@ def show_admin_interface():
         st.info("아직 예약된 내역이 없습니다.")
         return
 
-    df["tickets"] = pd.to_numeric(df["tickets"], errors="coerce").fillna(0).astype(int)
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    reservation_counts = df.groupby("date", as_index=False)["tickets"].sum()
+    df["b200_tickets"] = pd.to_numeric(df["b200_tickets"], errors="coerce").fillna(0).astype(int)
+    df["h100_tickets"] = pd.to_numeric(df["h100_tickets"], errors="coerce").fillna(0).astype(int)
+    df["tickets_total"] = df["b200_tickets"] + df["h100_tickets"]
+
+    reservation_counts = df.groupby("date", as_index=False)["tickets_total"].sum()
 
     st.subheader("일자별 총 예약 개수 (달력뷰)")
+
     today = datetime.date.today()
     current_year = today.year
     current_month = today.month
@@ -469,7 +466,8 @@ def show_admin_interface():
             if day.month != month:
                 col.write("")
                 continue
-            day_count = reservation_counts.loc[reservation_counts["date"] == day, "tickets"]
+
+            day_count = reservation_counts.loc[reservation_counts["date"] == day, "tickets_total"]
             count = int(day_count.iloc[0]) if not day_count.empty else 0
             bg_color = color_for_count(count)
 
@@ -498,7 +496,8 @@ def show_admin_interface():
             st.write(f"**이름**: {row.get('name', '')}")
             st.write(f"**이메일**: {row.get('email', '')}")
             st.write(f"**핸드폰**: {row.get('phone', '')}")
-            st.write(f"**예약 개수**: {int(row.get('tickets', 0))}장")
+            st.write(f"**B200**: {int(row.get('b200_tickets', 0))}장")
+            st.write(f"**H100**: {int(row.get('h100_tickets', 0))}장")
             st.write(f"**서비스 유형**: {row.get('service_type', '')}")
             st.write(f"**스토리지**: {row.get('storage_gib', '')} GiB / {row.get('storage_type', '')}")
             if str(row.get("notes", "")).strip():
@@ -512,7 +511,7 @@ st.sidebar.title("메뉴")
 
 page = st.sidebar.radio(
     "원하는 기능을 선택하세요",
-    ["예약 현황 안내", "B200 예약하기", "내 예약 확인"],
+    ["예약 현황 안내", "GPU 예약하기", "내 예약 확인"],
     index=0
 )
 
@@ -531,7 +530,7 @@ if st.session_state.get("admin_authenticated"):
 else:
     if page == "예약 현황 안내":
         page_calendar()
-    elif page == "B200 예약하기":
+    elif page == "GPU 예약하기":
         page_booking()
     else:
         page_my_reservations()
