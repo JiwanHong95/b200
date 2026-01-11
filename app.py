@@ -20,7 +20,7 @@ COLUMNS = [
 ]
 
 # 예약 오픈일(이전 날짜는 사용자 달력에서 회색 처리)
-OPEN_DATE = datetime.date(2026, 1, 7)
+OPEN_DATE = datetime.date(2026, 1, 12)
 
 # 색 기준(공통)
 # - 초록: 0~22장 (여유)
@@ -256,7 +256,7 @@ def page_booking():
     max_date = datetime.date(2026, 12, 31)
 
     reservation_dates = st.date_input(
-        "예약 날짜를 선택하세요. (2026년 1월 7일부터 예약 가능)",
+        "예약 날짜를 선택하세요. (2026년 1월 12일부터 예약 가능)",
         (min_selectable_date, min_selectable_date + datetime.timedelta(days=1)),
         min_value=min_selectable_date,
         max_value=max_date,
@@ -289,10 +289,12 @@ def page_booking():
     if service_type == "엘리스AI클라우드 런박스":
         st.info(
             "엘리스 AI 클라우드 런박스는 사전 구성된 인스턴스를 선택하는 것만으로 즉시 개발·실행 환경을 활용할 수 있는 관리형 PaaS 솔루션입니다."
+            "자세히 알아보기 : https://elice.io/ko/cloud/runbox"
         )
     else:
         st.info(
             "ECI(Elice Cloud Infrastructure)는 관리자 포털을 통해 VM, 네트워크, 클러스터를 설계·구성·운영할 수 있는 VM 기반 AI 인프라(IaaS) 플랫폼입니다."
+            "자세히 알아보기 : https://elice.io/ko/cloud/eci"
         )
 
     # ✅ 스토리지 입력
@@ -383,7 +385,7 @@ def page_my_reservations():
     st.title("내 예약 확인")
     st.write("예약 신청 시 입력한 **휴대폰 번호**로 본인 예약 내역을 확인합니다.")
 
-    phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678 또는 숫자만)")
+    phone_input = st.text_input("휴대폰 번호를 입력하세요 (예: 010-1234-5678)")
     if st.button("내 예약 조회"):
         try:
             df = load_reservations()
