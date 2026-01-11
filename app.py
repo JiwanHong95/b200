@@ -323,7 +323,7 @@ def page_booking():
     st.subheader("특이사항")
     notes = st.text_area(
         "추가 요청/구성/네트워크/인스턴스 유형 등 특이사항을 적어주세요.",
-        placeholder='e.g., G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다. "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
+        placeholder='e.g., "G-NBTHS-1440 유형의 인스턴스 4대가 필요합니다.", "총 64장의 GPU를 InfiniBand(IB) Cluster로 구성해야 합니다."'
     )
 
     st.subheader("예약자 정보 입력")
